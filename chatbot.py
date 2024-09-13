@@ -6,16 +6,18 @@ import json
 bedrock_client = boto3.client('bedrock-runtime', region_name='us-east-1')
 
 def query_knowledge_base(query, conversation_history):
-    # Add the new user query to the conversation history
-    conversation_history.append({
-        "role": "user",
-        "content": [
-            {
-                "type": "text",
-                "text": query
-            }
-        ]
-    })
+    # Ensure the conversation alternates between user and assistant
+    if len(conversation_history) == 0 or conversation_history[-1]["role"] != "user":
+        # Add the new user query to the conversation history
+        conversation_history.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": query
+                }
+            ]
+        })
 
     # Define the payload for the Claude 3.5 Sonnet model
     payload = {
@@ -53,28 +55,51 @@ def query_knowledge_base(query, conversation_history):
         return 'No output found in response', conversation_history
 
 # Streamlit app
+st.set_page_config(layout="wide")
 st.title("AWS Knowledge Base Query")
 
 # Initialize conversation history
 if 'conversation_history' not in st.session_state:
     st.session_state.conversation_history = []
 
-query = st.text_input("Enter your query:")
+# Layout
+col1, col2 = st.columns([1, 3])
 
-if st.button("Submit"):
-    if query:
-        response, st.session_state.conversation_history = query_knowledge_base(query, st.session_state.conversation_history)
-        st.write("Response (Claude 3.5 Sonnet):")
-        st.write(response)
-    else:
-        st.write("Please enter a query.")
+with col1:
+    st.markdown("### Enter your query")
+    with st.form(key='query_form'):
+        query = st.text_input("Query", placeholder="*Enter next question here.*", label_visibility="collapsed")
+        submit_button = st.form_submit_button(label='Submit')
+        if submit_button and query:
+            response, st.session_state.conversation_history = query_knowledge_base(query, st.session_state.conversation_history)
+            # Clear the input field after submission
+            st.session_state['query'] = ''
+            st.experimental_rerun()
 
-# Display the conversation history
-st.write("Conversation History:")
-for message in st.session_state.conversation_history:
-    role = message['role']
-    text = message['content'][0]['text']
-    st.write(f"{role.capitalize()}: {text}")
+with col2:
+    st.markdown("### Conversation History")
+    conversation_container = st.container()
+    with conversation_container:
+        # Display conversation in reverse order (newest to oldest)
+        for message in reversed(st.session_state.conversation_history):
+            role = message['role']
+            text = message['content'][0]['text']
+            if role == 'user':
+                st.markdown(f"**You:** {text}")
+            else:
+                st.markdown(f"**Claude 3.5 Sonnet:** {text}")
 
-# Provide a new prompt box for continuing the conversation
-st.text_input("Continue the conversation:", key="new_query")
+    # Make the conversation history scrollable
+    conversation_container.markdown(
+        """
+        <style>
+        div[data-testid="stVerticalBlock"] > div:first-child {
+            max-height: 500px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
